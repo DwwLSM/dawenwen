@@ -18,7 +18,7 @@ const polynomialOperation = {
           const [coeffB, powerB] = this.splitTerm(termB, variable);
           const newPower = powerA + powerB;
           const newCoeff = coeffA * coeffB;
-          if (resultTerms[newPower] === undefined) {
+          if (resultTerms[newPower] === void 0) {
             resultTerms[newPower] = newCoeff;
           } else {
             resultTerms[newPower] += newCoeff;
