@@ -101,8 +101,8 @@ const polynomialOperation = {
       default:
         throw new Error('Invalid operation');
     }
-    const poly1 = expression.substring(1, operatorIndex); // Extract the first polynomial without the opening bracket
-    const poly2 = expression.substring(operatorIndex + 2, expression.length - 1); // Extract the second polynomial without the closing bracket
+    const poly1 = expression.substring(1, operatorIndex);
+    const poly2 = expression.substring(operatorIndex + 2, expression.length - 1);
     return [poly1, poly2];
   },
   processTerms(variable, poly1, poly2, operationFn) {
