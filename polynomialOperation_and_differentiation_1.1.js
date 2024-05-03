@@ -39,7 +39,7 @@ const polynomialOperation = {
     };
   },
   dif(variable) {
-    return (expression) => {
+    return expression => {
       if (expression.includes('(')) {
         const calResult = this.cal(variable)(expression);
         expression = calResult;
@@ -68,7 +68,7 @@ const polynomialOperation = {
     };
   },
   cal(variable) {
-    return (expression) => {
+    return expression => {
       expression = expression.replace(/\s/g, '');
 
       if (expression.includes('+(')) {
