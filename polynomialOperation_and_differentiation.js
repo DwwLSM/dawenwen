@@ -38,7 +38,7 @@ const polynomialOperation = {
         .join('+').replace(/\+\-/g, '-');
     };
   },
-  diff(variable) {
+  dif(variable) {
     return (expression) => {
       if (expression.includes('(')) {
         const calResult = this.cal(variable)(expression);
@@ -47,7 +47,6 @@ const polynomialOperation = {
 
       const terms = expression.split('+').map(part => part.trim());
 
-      // Differentiate each term
       const differentiatedTerms = terms.map(term => {
         const [coeff, power] = this.splitTerm(term, variable);
 
@@ -145,9 +144,9 @@ const polynomialOperation = {
 console.log(polynomialOperation.add('x')('x2+3', '2x+1')) // return "x2+2x+4"
 console.log(polynomialOperation.sub('x')('x2+3', '2x+1')) // return "x2-2x+2"
 console.log(polynomialOperation.mul('x')('x2+3', '2x+1')) // return "2x3+x2+6x+3"
-console.log(polynomialOperation.diff('x')('x3+2x2+6'));  // return 3x2+4x1
+console.log(polynomialOperation.dif('x')('x3+2x2+6'));  // return 3x2+4x1
 console.log(polynomialOperation.cal('x')('(x2+3)+(2x+1)'));// return "x2+2x+4"
 console.log(polynomialOperation.cal('x')('(x2+3)-(2x+1)'));// return "x2-2x+2"
 console.log(polynomialOperation.cal('x')('(x2+3)(2x+1)'));// return "2x3+x2+6x+3"
-console.log(polynomialOperation.diff('x')('(x2+3)(2x+1)'));// return "6x2+2x1+6"
+console.log(polynomialOperation.dif('x')('(x2+3)(2x+1)'));// return "6x2+2x1+6"
 */
