@@ -80,9 +80,6 @@ public:
     
     void getCard(Player* player, std::string identity = "Player") {
 
-        if (player->property <= 0)
-            return;
-
         player->current_points += cardLib[card_index];
         if (cardLib[card_index] == 1) {
             player->card_A++;
