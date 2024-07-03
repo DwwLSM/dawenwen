@@ -12,9 +12,11 @@ public:
     std::string name;
     long long property = 800;
     long long (*input)(Player* self) = [](Player* self)->long long {
-        return self->property > 500 
-            ? self->property * 0.2
-            : self->property * 0.5;
+        return self->property < 0 
+            ? 0
+            : self->property > 500 
+                ? self->property * 0.2
+                : self->property * 0.5;
     };
     bool (*moreCard)(Player* self) = [](Player* self)->bool {
         return self->current_points < 17;
@@ -106,6 +108,9 @@ public:
                 banker != players.end();
                 ++banker
             ) for (int i=0; i<bankerDuration; i++) {
+
+                if ((*banker)->property < 0)
+                    break;
                 
                 (*banker)->current_points = 0;
                 std::cout 
