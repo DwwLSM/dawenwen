@@ -12,14 +12,16 @@ public:
     std::string name;
     long long property = 800;
     long long (*input)(Player* self) = [](Player* self)->long long {
-        return self->property < 0 
-            ? 0
+        return self->property < 5 
+            ? self->property
             : self->property > 500 
                 ? self->property * 0.2
                 : self->property * 0.5;
     };
     bool (*moreCard)(Player* self) = [](Player* self)->bool {
-        return self->current_points < 17;
+        return self->card_A 
+            ? self->current_points < 8
+            : self->current_points < 17;
     };
     
     int current_points = 0;
@@ -79,6 +81,9 @@ public:
     }
     
     void getCard(Player* player, std::string identity = "Player") {
+        
+        if (player->property <= 0)
+            return;
 
         player->current_points += cardLib[card_index];
         if (cardLib[card_index] == 1) {
@@ -140,7 +145,7 @@ public:
                 }
                 getCard(*banker, "Banker");
                 for (
-                    auto player=banker+1;
+                    auto player = banker+1;
                     player != players.end();
                     ++player
                 ) getCard(*player);
@@ -240,6 +245,11 @@ public:
                             << "; property: "
                             << (*player)->property
                             << std::endl;
+                        if ((*player)->property <= 0) {
+                            (*player)->moreCard = [](Player* self)->bool {
+                                return false;
+                            };
+                        }
                     }
                 }
                 std::cout 
@@ -248,6 +258,11 @@ public:
                     << "'s property: "
                     << (*banker)->property
                     << std::endl;
+                if ((*banker)->property <= 0) {
+                    (*banker)->moreCard = [](Player* self)->bool {
+                        return false;
+                    };
+                }
             }
         }
         auto player = players.begin();
