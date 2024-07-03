@@ -11,7 +11,7 @@ public:
     Player(std::string _name):name(_name) {}
     std::string name;
     long long property = 800;
-    long long (*input)(Player* self) = [](Player* self)->long long{
+    long long (*input)(Player* self) = [](Player* self)->long long {
         return self->property > 500 
             ? self->property * 0.2
             : self->property * 0.5;
@@ -115,7 +115,7 @@ public:
                 getCard(*banker, "Banker");
                 
                 for (
-                    auto player=banker+1;
+                    auto player = banker+1;
                     player != players.end();
                     ++player
                 ) {
@@ -149,7 +149,7 @@ public:
                 do {
                     notFinish = false;
                     for (
-                        auto player=banker+1;
+                        auto player = banker+1;
                         player != players.end();
                         ++player
                     ) if ((*player)->moreCard(*player)) {
@@ -179,7 +179,7 @@ public:
                     (**banker).current_points = 0;
                 
                for (
-                    auto player=banker+1;
+                    auto player = banker+1;
                     player != players.end();
                     ++player
                 ) {
