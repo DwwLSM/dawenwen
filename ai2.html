@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Artificial Idiot: Number Predict with Neural Network</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: Arial, sans-serif;
+            background-color: #ccc;
+        }
+        .canvas-container {
+            display: flex;
+            justify-content: center;
+            margin: 20px;
+            background-color: #fff;
+        }
+        canvas {
+            border: 1px solid black;
+            margin: 20px;
+        }
+        #result {
+            font-size: 24px;
+            margin-top: 20px;
+        }
+        #teachNumber {
+            display: none;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Draw a Number (0-9)</h1>
+    <span>Artificial Idiot: Number Predict with Neural Network</span>
+    <span>By dawenwen</span>
+    <div class="canvas-container">
+        <canvas id="drawingCanvas" width="270" height="270"></canvas>
+        <canvas id="inputDataCanvas" width="270" height="270"></canvas>
+    </div>
+    <button id="submitButton">Submit</button>
+    <button onclick="ctx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);">Clear</button>
+    <div id="result"></div>
+    <button id="learnButton">Learn</button>
+    <input id="learningRate" value="0.001">
+    <div id="teachNumber">
+        <label for="numberSelect">Choose a number to teach:</label>
+        <select id="numberSelect">
+            <option value="0">0</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+            <option value="9">9</option>
+        </select>
+        <button id="confirmLearnButton">Confirm Learning</button>
+    </div>
+
+    <script>
+        const $id = v => document.getElementById(v)
+
+        const drawingCanvas = document.getElementById('drawingCanvas');
+        const ctx = drawingCanvas.getContext('2d');
+        const inputDataCanvas = document.getElementById('inputDataCanvas');
+        const inputDataCtx = inputDataCanvas.getContext('2d');
+        const resultDiv = document.getElementById('result');
+        const teachNumberDiv = document.getElementById('teachNumber');
+        const learnButton = document.getElementById('learnButton');
+        
+        let drawing = false;
+        let trainedData = [];
+
+        let lastClickTime = 0
+
+        drawingCanvas.addEventListener('mousedown', () => {
+            drawing = true;
+            if (Date.now() - lastClickTime > 900)
+                ctx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+        });
+
+        drawingCanvas.addEventListener('mouseup', () => {
+            drawing = false;
+            ctx.beginPath();
+
+            lastClickTime = Date.now()
+            visualizeInputData(getImageData());
+        });
+
+        drawingCanvas.addEventListener('mousemove', draw);
+
+        function draw(event) {
+            if (!drawing) return;
+
+            ctx.lineWidth = 10;
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = 'black';
+
+            ctx.lineTo(event.clientX - drawingCanvas.offsetLeft, event.clientY - drawingCanvas.offsetTop);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(event.clientX - drawingCanvas.offsetLeft, event.clientY - drawingCanvas.offsetTop);
+        }
+
+        $id('submitButton').addEventListener('click', () => {
+            const predictedNumber = predictNumber();
+            resultDiv.textContent = `Predicted Number: ${predictedNumber}`;
+        });
+
+        function predictNumber() {
+            const inputData = getImageData();
+            visualizeInputData(inputData);
+            const output = neuralNetwork.predict(inputData);
+            // console.log("res:", output, Math.max(...output), output.indexOf(Math.max(...output)))
+            drawChart(output)
+            return output.indexOf(Math.max(...output));
+        }
+
+        learnButton.addEventListener('click', () => {
+            teachNumberDiv.style.display = 'block';
+        });
+
+        $id('confirmLearnButton').addEventListener('click', () => {
+            const selectedNumber = $id('numberSelect').value;
+            const inputData = getImageData();
+            trainedData.push({
+                number: selectedNumber,
+                data: inputData
+            });
+            neuralNetwork.train(trainedData);
+            alert(`Learning the number: ${selectedNumber}`);
+            teachNumberDiv.style.display = 'none';
+        });
+
+        function getImageData() {
+            const imageData = ctx.getImageData(0, 0, drawingCanvas.width, drawingCanvas.height);
+            const data = imageData.data;
+            const intensityData = new Array(27 * 27).fill(0);
+            const blockSize = 10;
+
+            for (let i = 0; i < 27; i++) {
+                for (let j = 0; j < 27; j++) {
+                    let sum = 0;
+
+                    for (let x = 0; x < blockSize; x++) {
+                        for (let y = 0; y < blockSize; y++) {
+                            const pixelIndex = ((i*blockSize + y)*270 + (j*blockSize + x)) * 4;
+                            sum += data[pixelIndex+3];
+                        }
+                    }
+
+                    const averageIntensity = sum/blockSize/blockSize;
+                    intensityData[i*27 + j] = averageIntensity/255;
+                }
+            }
+            return intensityData;
+        }
+
+        function visualizeInputData(inputData) {
+            inputDataCtx.clearRect(0, 0, inputDataCanvas.width, inputDataCanvas.height);
+            const pixelSize = 10;
+            for (let i = 0; i < 27; i++) {
+                for (let j = 0; j < 27; j++) {
+                    const intensity = inputData[i*27 + j];
+                    inputDataCtx.fillStyle = `rgb(${intensity*255}, ${intensity*255}, ${intensity*255})`;
+                    inputDataCtx.fillRect(j * pixelSize, i*pixelSize, pixelSize, pixelSize);
+                }
+            }
+        }
+
+        class NeuralNetwork {
+            constructor() {
+
+                const initWeights = (inputSize, outputSize) => {
+                    const weights = [];
+                    for (let i = 0; i < outputSize; i++) {
+                        weights[i] = new Array(inputSize).fill(0).map(() => Math.random()/outputSize);
+                    }
+                    // console.log(weights)
+                    return weights;
+                }
+
+                this.layers = [
+                    { neurons: 333, weights: initWeights(729, 333) },
+                    { neurons: 333, weights: initWeights(333, 333) },
+                    { neurons: 10,  weights: initWeights(333, 10)  },
+                ];
+
+                this.dropoutRate = 0.1;
+                this.l2Regularization = 0.003;
+
+            }
+
+            train(data) {
+                for (const { number, data: inputData } of data) {
+                    const expectedOutput = new Array(10).fill(0);
+                    expectedOutput[number] = 1;
+                    this.backpropagate(inputData, expectedOutput);
+                }
+            }
+
+            backpropagate(inputData, expectedOutput) {
+        
+                const hiddenLayer1Output = this.forwardPass(inputData, this.layers[0], true);
+                const hiddenLayer2Output = this.forwardPass(hiddenLayer1Output, this.layers[1], true);
+                const outputLayerOutput  = this.forwardPass(hiddenLayer2Output, this.layers[2]);
+
+                const outputErrors = outputLayerOutput.map((output, index) => output - expectedOutput[index]);
+
+                const hiddenLayer2Errors = this.backwardPass(outputErrors, this.layers[2], hiddenLayer2Output);
+                const hiddenLayer1Errors = this.backwardPass(hiddenLayer2Errors, this.layers[1], hiddenLayer1Output);
+
+                this.updateWeights(hiddenLayer1Errors, inputData, this.layers[0]);
+                this.updateWeights(hiddenLayer2Errors, hiddenLayer1Output, this.layers[1]);
+                this.updateWeights(outputErrors, hiddenLayer2Output, this.layers[2]);
+            }
+
+            updateWeights(errors, prevLayerOutput, layer) {
+                const learningRate = $id("learningRate").value;
+
+                for (let i = 0; i < layer.neurons; i++) {
+                    for (let j = 0; j < prevLayerOutput.length; j++) {
+                        if (!isNaN(errors[i]) && !isNaN(prevLayerOutput[j])) {
+                            layer.weights[i][j] -= learningRate * errors[i] * prevLayerOutput[j];
+
+                            layer.weights[i][j] -= this.l2Regularization * layer.weights[i][j];
+                        }
+                    }
+                }
+            }
+
+            backwardPass(errors, layer, prevLayerOutput) {
+                const gradients = new Array(layer.neurons);
+                const learningRate = 0.1;
+
+                for (let i = 0; i < layer.neurons; i++) {
+                    
+                    if (prevLayerOutput[i] !== void 0) {
+                        gradients[i] = errors[i] * prevLayerOutput[i] * (1 - prevLayerOutput[i]);
+                    } else {
+                        gradients[i] = 0;
+                    }
+                }
+
+                return layer.weights.map((weights, i) => {
+                    return weights.reduce((sum, weight, j) => {
+                        return sum + weight*gradients[i];
+                    }, 0);
+                });
+            }
+
+            forwardPass(input, layer, applyDropout = false) {
+                const wSum = (a, b) => a.reduce((s, v, i) => s + v * b[i]);
+                const sigmoid = x => 1 / (1 + Math.exp(-x));
+
+                const output = new Array(layer.neurons);
+                const dropoutMask = [];
+
+                for (let i = 0; i < layer.neurons; i++) {
+                    output[i] = sigmoid(wSum(input, layer.weights[i]));
+                    if (applyDropout) {
+                        dropoutMask[i] = Math.random() > this.dropoutRate ? 1 : 0;
+                        output[i] *= dropoutMask[i];
+                    } else {
+                        dropoutMask[i] = 1;
+                    }
+                }
+
+                return output;
+            }
+
+            predict(inputData) {
+                const hLayer1_o = this.forwardPass(inputData, this.layers[0]);
+                const hLayer2_o = this.forwardPass(hLayer1_o, this.layers[1]);
+                return this.forwardPass(hLayer2_o, this.layers[2]);
+            }
+        }
+
+        const neuralNetwork = new NeuralNetwork();
+    </script>
+
+    <canvas id="barChart" width="600" height="480"></canvas>
+    <button id="exportButton">Export Weights</button>
+    <button id="importButton">Import Weights</button>
+    <input type="file" id="fileInput" style="display: none;">
+    <button id="exportDataButton">Export Trained Data</button>
+    <button id="importDataButton">Import Trained Data</button>
+    <input type="file" id="dataFileInput" style="display: none;">
+    
+    <script>
+        const barChart_canvas = document.getElementById('barChart');
+        const barChart_ctx = barChart_canvas.getContext('2d');
+
+        const barHeight = 24;
+        const barSpacing = 18;
+        const maxBarWidth = barChart_canvas.width - 150;
+
+        const drawChart = numberArray => {
+            barChart_ctx.clearRect(0, 0, barChart_canvas.width, barChart_canvas.height);
+
+            numberArray.forEach((value, index) => {
+                const barWidth = (value / Math.max(...numberArray)) * maxBarWidth;
+                barChart_ctx.fillStyle = '#50a';
+                barChart_ctx.fillRect(30, (1 + index) * (barHeight + barSpacing), barWidth, barHeight);
+                
+                barChart_ctx.fillStyle = 'black';
+                barChart_ctx.fillText(value, 50 + barWidth + 5, (1 + index) * (barHeight + barSpacing) + barHeight / 2);
+            });
+        };
+
+        $id('exportButton').addEventListener('click', () => {
+            const weights = neuralNetwork.layers.map(layer => layer.weights);
+            const json = JSON.stringify(weights);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'neural_network_weights.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        });
+
+        $id('importButton').addEventListener('click', () => {
+            $id('fileInput').click();
+        });
+
+        $id('fileInput').addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const weights = JSON.parse(e.target.result);
+                    weights.forEach((weight, index) => {
+                        neuralNetwork.layers[index].weights = weight;
+                    });
+                    alert('Weights imported successfully!');
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        $id('exportDataButton').addEventListener('click', () => {
+            const json = JSON.stringify(trainedData);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'trained_data.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        });
+
+        $id('importDataButton').addEventListener('click', () => {
+            $id('dataFileInput').click();
+        });
+
+        $id('dataFileInput').addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const importedData = JSON.parse(e.target.result);
+                    trainedData.push(...importedData);
+                    importedData.forEach(({ number, data }) => {
+                        visualizeInputData(data)
+                        neuralNetwork.train([{ number, data }]);
+                    });
+                    alert('Trained data imported and training completed successfully!');
+                };
+                reader.readAsText(file);
+            }
+        });
+    </script>
+</body>
+</html>
