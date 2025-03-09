@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Artificial Idiot: Number Predict with Neural Network</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: Arial, sans-serif;
+            background-color: #bcd;
+        }
+        .canvas-container {
+            display: flex;
+            justify-content: center;
+            margin: 20px;
+            background-color: #fff;
+        }
+        canvas {
+            border: 1px solid black;
+            margin: 20px;
+        }
+        #result {
+            font-size: 24px;
+            margin-top: 20px;
+        }
+        #teachNumber {
+            display: none;
+            margin-top: 10px;
+        }
+        .config-section {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            z-index: 1000;
+            background: rgba(239, 200, 255, 0.95);
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+        }
+
+    </style>
+</head>
+<body>
+    <div class="config-section">
+        <h3>Network init Config</h3>
+        <div>
+            <label>Grid Size (nxn): </label>
+            <input type="number" id="gridSize" value="29" min="10" max="50">
+        </div>
+        <div>
+            <label>Activation: </label>
+            <select id="initActivation" onchange="onActivationChange(this)">
+                <option value="sigmoid">Sigmoid</option>
+                <option value="relu">ReLU</option>
+                <option value="leakyRelu">leakyRelu</option>
+            </select>
+        </div>
+        <div>
+            <label>Learning Rate: </label>
+            <input type="number" id="learningRateInit" value="0.005" step="0.001">
+        </div>
+        <div>
+            <label>Dropout Rate: </label>
+            <input type="number" id="dropoutRate" value="0.3" step="0.01" min="0" max="1">
+        </div>
+        <div>
+            <label>L2 Regularization: </label>
+            <input type="number" id="l2Regularization" value="0.001" step="0.0001">
+        </div>
+        <button onclick="initializeNetwork()">Initialize Network</button>
+    </div>
+    <div id="trainingStatus" style="
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: rgba(255,255,255,0.9);
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        max-width: 300px;
+        font-family: monospace;
+    ">
+    <div id="statusText">🟢 准备就绪</div>
+    <div id="progressBar" style="
+        height: 4px;
+        background: #ddd;
+        margin-top: 8px;
+        border-radius: 2px;
+    ">
+        <div id="progressFill" style="
+            height: 100%;
+            background: #4CAF50;
+            width: 0%;
+            transition: width 0.3s ease;
+        "></div>
+    </div>
+</div>
+
+    <h1>Draw a Number (0-9)</h1>
+    <span>Artificial Idiot: Number Predict with Neural Network</span>
+    <span>By dawenwen</span>
+    <div class="canvas-container">
+        <canvas id="drawingCanvas"></canvas>
+        <canvas id="inputDataCanvas"></canvas>
+    </div>
+    <button id="submitButton">Submit</button>
+    <button onclick="ctx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);">Clear</button>
+    <div id="result"></div>
+    <button id="learnButton">Learn this</button>
+    <button id="learnAll" onclick="trainAll()">Learn All</button>
+    <input type="number" id="learningRate" value="0.001">
+    <div id="teachNumber">
+        <label for="numberSelect">Choose a number to teach:</label>
+        <select id="numberSelect">
+            <option value="0">0</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+            <option value="9">9</option>
+        </select>
+        <button id="confirmLearnButton">Confirm Learning Data</button>
+    </div>
+
+    <script>
+
+        let shiftWhenTrain = true
+
+        let gridSize = 29;
+        const PIXEL_SCALE = 10;
+        const BLOCK_SIZE = 10;
+
+        const $id = v => document.getElementById(v)
+        const dot = (a, b) => a.reduce((s, v, i) => s + v * b[i]);
+
+        const scaleFuncs = {
+            He: inputSize => Math.sqrt(2 / inputSize),
+            Xavier: inputSize => Math.sqrt(1 / inputSize),
+        }
+        const activationFunctions = {
+            sigmoid: {
+                func: x => 1 / (1 + Math.exp(-x)),
+                deriv: x => (x = 1 / (1 + Math.exp(-x))) * (1 - x),
+                scale: scaleFuncs.Xavier,
+                defaultLearningRate: 0.006,
+            },
+            relu: {
+                func: x => Math.max(0, x),
+                deriv: x => x > 0 ? 1 : 0,
+                scale: scaleFuncs.He,
+                defaultLearningRate: 0.001,
+            },
+            leakyRelu: {
+                func: x => x > 0 ? x : 0.01 * x,
+                deriv: x => x > 0 ? 1 : 0.01,
+                scale: scaleFuncs.He,
+                defaultLearningRate: 0.001,
+            },
+            softmax: {
+                func: zArray => {
+                    const maxZ = Math.max(...zArray);
+                    const exps = zArray.map(z => Math.exp(z - maxZ));
+                    const sum = exps.reduce((a, b) => a + b);
+                    return exps.map(exp => exp / (sum + 1e-8));
+                },
+                deriv: (outputs) => {
+                    const gradients = [];
+                    for (let i = 0; i < outputs.length; i++) {
+                        gradients[i] = [];
+                        for (let j = 0; j < outputs.length; j++) {
+                            gradients[i][j] = outputs[i] * ((i === j) - outputs[j]);
+                        }
+                    }
+                    return gradients;
+                },
+                scale: scaleFuncs.Xavier,
+                defaultLearningRate: 0.005
+            }
+        };
+
+
+        const drawingCanvas = $id('drawingCanvas');
+        const ctx = drawingCanvas.getContext('2d');
+        const inputDataCanvas = $id('inputDataCanvas');
+        const inputDataCtx = inputDataCanvas.getContext('2d');
+        const resultDiv = $id('result');
+        const teachNumberDiv = $id('teachNumber');
+        const learnButton = $id('learnButton');
+        const statusText = $id('statusText');
+        const progressFill = $id('progressFill');
+        const learningRateInit = $id("learningRateInit")
+        const learningRateInput = $id("learningRate");
+        const dropoutRateInput = $id("dropoutRate");
+        const l2RegularizationInput = $id("l2Regularization");
+        
+        let drawing = false;
+        let trainedData = [];
+
+        let lastClickTime = 0
+
+        function onActivationChange(elem) {
+            learningRateInit.value = activationFunctions[elem.value].defaultLearningRate;
+        }
+
+        drawingCanvas.addEventListener('mousedown', () => {
+            drawing = true;
+            if (Date.now() - lastClickTime > 900)
+                ctx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+        });
+
+        drawingCanvas.addEventListener('mouseup', () => {
+            drawing = false;
+            ctx.beginPath();
+
+            lastClickTime = Date.now()
+            visualizeInputData(getImageData());
+        });
+
+        drawingCanvas.addEventListener('mousemove', (event) => {
+            if (!drawing) return;
+            const rect = drawingCanvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            draw(x, y);
+        });
+
+        drawingCanvas.addEventListener('touchmove', (event) => {
+            if (!drawing) return;
+            const touch = event.touches[0];
+            const rect = drawingCanvas.getBoundingClientRect();
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+            draw(x, y);
+        });
+
+        function draw(x, y) {
+            ctx.lineWidth = 10;
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = 'black';
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+        }
+
+        $id('submitButton').addEventListener('click', predictOutput);
+
+        function predictOutput() {
+            const predictedNumber = predictNumber();
+            resultDiv.textContent = `Predicted Number: ${predictedNumber}`;
+        }
+
+        function predictNumber() {
+            const inputData = getImageData();
+            visualizeInputData(inputData);
+            const output = neuralNetwork.predict(inputData);
+            // console.log("res:", output, Math.max(...output), output.indexOf(Math.max(...output)))
+            drawChart(output)
+            return output.indexOf(Math.max(...output));
+        }
+
+        learnButton.addEventListener('click', () => {
+            teachNumberDiv.style.display = 'block';
+        });
+
+        $id('confirmLearnButton').addEventListener('click', () => {
+            const selectedNumber = $id('numberSelect').value;
+            const inputData = getImageData();
+            trainedData.push({
+                number: selectedNumber,
+                data: inputData
+            });
+            alert(`new Data: ${selectedNumber}`);
+            teachNumberDiv.style.display = 'none';
+        });
+
+        function shuffleArray(array) {
+            return array.sort((a, b)=> .5 - Math.random())
+        }
+
+        function trainAll(shuffle=true) {
+            neuralNetwork.train(shuffle ? shuffleArray(trainedData) : trainedData);
+        }
+
+        function getImageData() {
+            const imageData = ctx.getImageData(0, 0, drawingCanvas.width, drawingCanvas.height);
+            const data = imageData.data;
+            const intensityData = new Array(gridSize * gridSize).fill(0);
+
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    let sum = 0;
+
+                    for (let x = 0; x < BLOCK_SIZE; x++) {
+                        for (let y = 0; y < BLOCK_SIZE; y++) {
+                            
+                            const absX = j * BLOCK_SIZE + x;
+                            const absY = i * BLOCK_SIZE + y;
+                            const pixelIndex = (absY * drawingCanvas.width + absX) * 4;
+                            sum += data[pixelIndex + 3];
+                        }
+                    }
+
+                    intensityData[i * gridSize + j] = sum / (BLOCK_SIZE * BLOCK_SIZE * 255);
+                }
+            }
+            return intensityData;
+        }
+
+        function visualizeInputData(inputData, ctx = inputDataCtx) {
+            ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+            
+            const displayScale = ctx.canvas.width / (gridSize * BLOCK_SIZE);
+            
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    const intensity = inputData[i * gridSize + j];
+                    ctx.fillStyle = `rgb(${intensity * 255}, ${intensity * 255}, ${intensity * 255})`;
+                    
+                    ctx.fillRect(
+                        j * BLOCK_SIZE * displayScale,
+                        i * BLOCK_SIZE * displayScale,
+                        BLOCK_SIZE * displayScale,
+                        BLOCK_SIZE * displayScale
+                    );
+                }
+            }
+        }
+
+
+        class NeuralNetwork {
+
+            constructor(activationType = 'leackyRelu', gridSize = 29) {
+
+                this.preActivations = new WeakMap()
+
+                this.learningRate = parseFloat(learningRateInit.value) || 0.005;
+                this.dropoutRate = parseFloat(dropoutRateInput.value) || 0.3;
+                this.l2Regularization = parseFloat(l2RegularizationInput.value) || 0.001;
+
+                this.trainingStartTime = null;
+                this.currentBatch = 0;
+                this.totalBatches = 0;
+                
+                this.activationType = activationType;
+                const inputSize = gridSize * gridSize;
+
+                learningRateInput.value = this.learningRate
+
+                this.layers = this.createLayers({
+                    inputSize,
+                    hiddenNeurons: [768, 512],
+                    outputSize: 10,
+                    activation: activationType
+                });
+            }
+            updateTrainingStatus(processed, total) {
+                const elapsed = (Date.now() - this.trainingStartTime) / 1000;
+                const speed = processed / elapsed;
+                const remaining = speed > 0 ? (total - processed) / speed : 0;
+
+                statusText.innerHTML = `📊 训练进度: ${(processed/total*100).toFixed(1)}%<br>
+                    🎯 已处理: ${processed}/${total}<br>
+                    ⏱️ 耗时: ${elapsed.toFixed(1)}s<br>
+                    🚀 速度: ${speed.toFixed(1)}样本/s<br>
+                    ⏳ 剩余: ${remaining.toFixed(1)}s`;
+                progressFill.style.width = `${processed/total*100}%`;
+            }
+
+            createLayers({inputSize, hiddenNeurons, outputSize, activation}) {
+                let layers = [];
+                
+                hiddenNeurons.forEach((neurons, index) => {
+                    layers.push(this.createLayer({
+                    neurons,
+                    inputSize: index === 0 ? inputSize : hiddenNeurons[index-1],
+                    activation
+                    }));
+                });
+                
+                layers.push(this.createLayer({
+                    neurons: outputSize,
+                    inputSize: hiddenNeurons[hiddenNeurons.length-1],
+                    activation: 'softmax',
+                }));
+                
+                return layers;
+            }
+
+            createLayer({ neurons, inputSize, activation }) {
+                const weights = [];
+                
+                const scale = activationFunctions[activation].scale(inputSize);
+
+                for (let i = 0; i < neurons; i++) {
+                    weights[i] = new Array(inputSize).fill(0)
+                        .map(() => (Math.random() * 2 - 1) * scale);
+                }
+                return { neurons, weights, activation };
+            }
+
+            async train(data, batchSize = 50, mulBatchSize = 600, learningRateDecayPer10000 = 0.97) {
+                this.learningRate = parseFloat(learningRateInput.value);
+                this.trainingStartTime = Date.now();
+                this.totalBatches = Math.ceil(data.length / batchSize);
+                const totalSamples = batchSize * mulBatchSize;
+                const gradAccumulator = this.createGradAccumulator();
+
+                let processed = 0, lastUpdate = Date.now();
+                const lrDecay = learningRateDecayPer10000 ** (totalSamples / 10000);
+
+                for (let i = 0; i < data.length;) {
+                    this.resetGradAccumulator(gradAccumulator);
+                    let actualSamples = 0;
+
+                    for (let j = 0; j < mulBatchSize; j++) {
+                        const batch = data.slice(i, i += batchSize);
+                        if (batch.length === 0) break;
+
+                        const augmented = generateAllShiftedCopies(batch);
+                        actualSamples += augmented.length;
+
+                        augmented.forEach(({number, data: input}) => {
+                            const target = new Array(10).fill(0);
+                            target[number] = 1;
+                            this.backpropagate(input, target, gradAccumulator);
+                        });
+
+                        processed += batch.length;
+                        if (Date.now() - lastUpdate > 100) {
+                            this.updateTrainingStatus(processed, data.length);
+                            lastUpdate = Date.now();
+                            await new Promise(r => setTimeout(r, 0));
+                        }
+                    }
+
+                    this.applyGrads(gradAccumulator, actualSamples);
+                    this.learningRate *= lrDecay;
+                    learningRateInput.value = this.learningRate;
+
+                    predictOutput();
+                    await new Promise(r => setTimeout(r, 0));
+                }
+
+                this.updateStatus({percentage: 100, processed: data.length, total: data.length}, "训练");
+                statusText.innerHTML += "<br>训练完成!";
+            }
+
+            createGradAccumulator() {
+                return this.layers.map(layer => ({
+                    weights: layer.weights.map(neuron => 
+                        new Float64Array(neuron.length)
+                    )
+                }));
+            }
+
+            resetGradAccumulator(accumulator) {
+                accumulator.forEach(layer => {
+                    layer.weights.forEach(neuron => {
+                        neuron.fill(0);
+                    });
+                });
+            }
+
+            backpropagate(input, target, accumulator) {
+                const outputs = [input];
+                const layers = this.layers;
+
+                for (const layer of layers) {
+                    outputs.push(this.forwardPass(outputs[outputs.length-1], layer, true));
+                }
+
+                let errors = outputs[outputs.length-1].map((o, i) => o - target[i]);
+
+                for (let i = layers.length - 1; i >= 0; i--) {
+                    const layer = layers[i];
+                    const zValues = this.preActivations.get(layer);
+                    const prevOutput = outputs[i];
+
+                    const gradients = errors.map((err, idx) => {
+                        const deriv = layer.activation === 'softmax' ? 1 : 
+                            activationFunctions[layer.activation].deriv(zValues[idx]);
+                        return err * deriv;
+                    });
+
+                    for (let n = 0; n < layer.neurons; n++) {
+                        for (let w = 0; w < prevOutput.length; w++) {
+                            accumulator[i].weights[n][w] += gradients[n] * prevOutput[w];
+                        }
+                    }
+                    
+                    errors = new Array(prevOutput.length).fill(0);
+                    for (let w = 0; w < prevOutput.length; w++) {
+                        for (let n = 0; n < layer.neurons; n++) {
+                            errors[w] += gradients[n] * layer.weights[n][w];
+                        }
+                    }
+                }
+            }
+
+            applyGrads(accumulator, sampleCount) {
+                const GRAD_CLIP = 1.0;
+                const scale = 1 / sampleCount;
+                
+                this.layers.forEach((layer, i) => {
+                    layer.weights.forEach((neuron, n) => {
+                        neuron.forEach((_, w) => {
+                            let grad = accumulator[i].weights[n][w] * scale;
+                            grad = Math.max(-GRAD_CLIP, Math.min(GRAD_CLIP, grad));
+                            layer.weights[n][w] -= this.learningRate * (grad + this.l2Regularization * layer.weights[n][w]);
+                        });
+                    });
+                });
+            }
+
+
+            forwardPass(input, layer, applyDropout = false) {
+                const func = activationFunctions[layer.activation].func;
+                const output = new Array(layer.neurons);
+                const zValues = [];
+                
+                for (let i = 0; i < layer.neurons; i++) {
+                    const z = dot(input, layer.weights[i]);
+                    zValues.push(z);
+                }
+
+                if (layer.activation === 'softmax') {
+                    const activations = func(zValues);
+                    for (let i = 0; i < layer.neurons; i++) {
+                        output[i] = (applyDropout && Math.random() < this.dropoutRate) 
+                                ? 0 
+                                : activations[i];
+                    }
+                } else {
+                    for (let i = 0; i < layer.neurons; i++) {
+                        output[i] = (applyDropout && Math.random() < this.dropoutRate)
+                                ? 0
+                                : func(zValues[i]);
+                    }
+                }
+
+                this.preActivations.set(layer, zValues);
+                return output;
+            }
+
+            predict(inputData) {
+                let outputs = [inputData]
+
+                for (const layer of this.layers) {
+                    outputs.push(this.forwardPass(outputs[outputs.length-1], layer, false));
+                }
+                return outputs[outputs.length-1]
+            }
+        }
+
+        let neuralNetwork;
+
+        function initializeNetwork() {
+
+            statusText.innerHTML = '🟢 准备就绪';
+            progressFill.style.width = '0%';
+            
+            gridSize = parseInt($id('gridSize').value) || 27;
+    
+            [drawingCanvas, inputDataCanvas].forEach(canvas => {
+                canvas.width = gridSize * BLOCK_SIZE;
+                canvas.height = gridSize * BLOCK_SIZE;
+            });
+
+            neuralNetwork = new NeuralNetwork(
+                $id('initActivation').value,
+                gridSize
+            );
+
+            document.querySelector('.config-section').style.transform = 'translateY(-100%)';
+        }
+            
+
+    </script>
+
+    <canvas id="barChart" width="600" height="480"></canvas>
+    <button id="exportButton">Export Weights</button>
+    <button id="importButton">Import Weights</button>
+    <input type="file" id="fileInput" style="display: none;">
+    <button id="exportDataButton">Export Trained Data</button>
+    <button id="importDataButton">Import Trained Data</button>
+    <input type="file" id="dataFileInput" style="display: none;">
+    
+    <script>
+        const barChart_canvas = document.getElementById('barChart');
+        const barChart_ctx = barChart_canvas.getContext('2d');
+
+        const barHeight = 24;
+        const barSpacing = 18;
+        const maxBarWidth = barChart_canvas.width - 150;
+
+        const drawChart = (numberArray) => {
+            barChart_ctx.clearRect(0, 0, barChart_canvas.width, barChart_canvas.height);
+            barChart_ctx.font = '14px Arial';
+
+            numberArray.forEach((value, index) => {
+                const barWidth = (value / Math.max(...numberArray)) * maxBarWidth;
+                barChart_ctx.fillStyle = '#50a';
+                barChart_ctx.fillRect(30, (1 + index) * (barHeight + barSpacing), barWidth, barHeight);
+
+                barChart_ctx.fillStyle = 'black';
+                barChart_ctx.fillText(`${index}: ${value.toFixed(4)}`, 50 + barWidth + 5, (1 + index) * (barHeight + barSpacing) + barHeight / 2);
+            });
+        };
+
+        $id('exportButton').addEventListener('click', () => {
+            const weights = neuralNetwork.layers.map(layer => layer.weights);
+            const json = JSON.stringify(weights);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'neural_network_weights.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        });
+
+        $id('importButton').addEventListener('click', () => {
+            $id('fileInput').click();
+        });
+
+        $id('fileInput').addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const weights = JSON.parse(e.target.result);
+                    weights.forEach((weight, index) => {
+                        neuralNetwork.layers[index].weights = weight;
+                    });
+                    alert('Weights imported successfully!');
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        $id('exportDataButton').addEventListener('click', () => {
+            const json = JSON.stringify(trainedData);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'trained_data.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        });
+
+        $id('importDataButton').addEventListener('click', () => {
+            $id('dataFileInput').click();
+        });
+
+        $id('dataFileInput').addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const importedData = JSON.parse(e.target.result);
+                    trainedData.push(...importedData);
+                    alert('Trained data imported and training completed successfully!');
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        function hasLeftEdge(data, pixels) {
+            const size = gridSize;
+
+            for(let x=0; x<pixels; x++) 
+                for(let y=0; y<size; y++)
+                    if(data[y*size + x] > 0) 
+                        return true;
+
+            return false;
+        }
+
+        function hasRightEdge(data, pixels) {
+            const size = gridSize
+
+            for(let x = size - pixels; x < size; x++)
+                for(let y = 0; y < size; y++) 
+                    if(data[y * size + x] > 0) 
+                        return true;
+
+            return false;
+        }
+
+        function hasTopEdge(data, pixels) {
+            const size = gridSize
+
+            for(let y = 0; y < pixels; y++)
+                for(let x = 0; x < size; x++)
+                    if(data[y * size + x] > 0) 
+                        return true;
+                
+            return false;
+        }
+
+        function hasBottomEdge(data, pixels) {
+            const size = gridSize;
+            for(let y = size - pixels; y < size; y++)
+                for(let x = 0; x < size; x++)
+                    if(data[y * size + x] > 0) 
+                        return true;
+
+            return false;
+        }
+        function generateAllShiftedCopies(allData) {
+
+            const newVariants = [];
+
+            const directions = [
+                {dx: -1, dy:  0, check: d => d & 0b1000},
+                {dx:  1, dy:  0, check: d => d & 0b0100},
+                {dx:  0, dy: -1, check: d => d & 0b0010},
+                {dx:  0, dy:  1, check: d => d & 0b0001},
+                {dx: -1, dy: -1, check: d => d & 0b1010},
+                {dx:  1, dy: -1, check: d => d & 0b0110},
+                {dx: -1, dy:  1, check: d => d & 0b1001}, 
+                {dx:  1, dy:  1, check: d => d & 0b0101},
+            ];
+
+            allData.forEach(original => {
+
+                const check = hasLeftEdge  (original.data, 1)  << 3 
+                            | hasRightEdge (original.data, 1)  << 2 
+                            | hasBottomEdge(original.data, 1)  << 1 
+                            | hasTopEdge   (original.data, 1);
+
+                directions.forEach(dir => {
+
+                    if(!dir.check(check)) {
+                        const shiftedData = shiftImageData(original.data, dir.dx, dir.dy);
+                        newVariants.push({
+                            number: original.number,
+                            data: shiftedData
+                        });
+                    }
+                });
+            });
+
+
+            return  allData.concat(newVariants);
+        }
+        function shiftImageData(originalData, dx, dy) {
+            const size = Math.sqrt(originalData.length);
+            const shifted = new Array(size * size).fill(0);
+
+            for (let y = 0; y < size; y++) {
+                for (let x = 0; x < size; x++) {
+                    const srcX = x - dx;
+                    const srcY = y - dy;
+                    
+                    if (srcX >= 0 && srcX < size && 
+                        srcY >= 0 && srcY < size) {
+                        shifted[y * size + x] = originalData[srcY * size + srcX];
+                    }
+                }
+            }
+            return shifted;
+        }
+    </script>
+    <br><br><br><br><br><br>
+</body>
+</html>
